@@ -126,6 +126,42 @@ class Publisher:
     def __init__(self, node_name='vision_node'): #topic_name='/Camera_vision', msg=sensor_msgs.msg.Image, queue_size=1
         rospy.init_node(node_name)
     
+    def image_pub(self, topic_name=None, image=None, image_format="rgb8", queue_size=1):
+        topic = rospy.Publisher(topic_name, sensor_msgs.msg.Image, queue_size=queue_size)
+
+        bridge = CvBridge()
+        final_img = bridge.cv2_to_imgmsg(image, image_format)
+        topic.publish(final_img)
+
+    def point_pub(self, topic_name=None, x_value=None, y_value=None, z_value=None, queue_size=1):
+        topic = rospy.Publisher(topic_name, geometry_msgs.msg.Point, queue_size=queue_size)
+
+        position_point = Point()
+
+        position_point.x = x_value
+        position_point.y = y_value
+        position_point.z = z_value
+
+        topic.publish(position_point)
+
+    def float32_pub(self, topic_name=None, value=None, queue_size=1):
+        topic = rospy.Publisher(topic_name, std_msgs.msg.Float32, queue_size=queue_size)
+
+        msg = Float32()
+
+        msg.data = value
+
+        topic.publish(msg)
+    
+    def bool_pub(self, topic_name=None, value=None, queue_size=1):
+        topic = rospy.Publisher(topic_name, std_msgs.msg.Bool, queue_size=queue_size)
+
+        msg = Bool()
+
+        msg.data = value
+
+        topic.publish(msg)
+    
     def int_array_pub(self, topic_name=None, value=None, queue_size=1):
         topic = rospy.Publisher(topic_name, std_msgs.msg.Int32MultiArray, queue_size=queue_size)
 
@@ -462,6 +498,8 @@ if __name__ == '__main__':
     
     shot = cv2.VideoCapture(2)
 
+    cam_pub = Publisher()
+
     actions = Publisher()
     
     pink_lower = (165, 125, 125)
@@ -475,6 +513,10 @@ if __name__ == '__main__':
 
     robot_lower = (15, 165, 175)
     robot_upper = (50, 255, 255)
+
+    data = []
+    
+    exit = False
 
     while True:
         try:
@@ -510,7 +552,7 @@ if __name__ == '__main__':
 
             try:
                 line_ang = left_robot._get_angle(end.center, (0, end.center[1]), beginning.center)
-                cv2.putText(left_robot.frame, str(line_ang), (end.center[0]-50, end.center[1]), cv2.FONT_HERSHEY_COMPLEX, 0.7, (255, 255, 255), 1)
+                #cv2.putText(left_robot.frame, str(line_ang), (end.center[0]-50, end.center[1]), cv2.FONT_HERSHEY_COMPLEX, 0.7, (255, 255, 255), 1)
             except:
                 pass
 
@@ -533,18 +575,31 @@ if __name__ == '__main__':
         
         try:
             motions, data = movement.trajectory_control(data)
-            actions.int_array_pub('/motions', motions)
 
+            if left_robot._get_distance(beginning.center, robot.center[0]) < 25:
+                motions = [0, 0, 0, 0, 0]
+                exit = True
+            actions.int_array_pub('/motions', motions)
         except:
             pass
+
+        if exit:
+            break
+
+        video = left_robot.frame
         
         try:
             cv2.imshow('Video', frame)
         except:
             pass
 
+        cam_pub.image_pub(topic_name='/Camera', image=video)
+
         if cv2.waitKey(1) & 0xFF == ord('q'):
             break
         
     shot.release()
     cv2.destroyAllWindows()
+
+    if exit:
+        print("LLEGÓOOOOOOOOOOOOOOOOOOOOOOOOOOOOOO :D")
