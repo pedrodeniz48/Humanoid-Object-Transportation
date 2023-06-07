@@ -56,7 +56,7 @@ class ObjectDetection:
 
         self.contours, _ = cv2.findContours(mask, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
         
-    def rectangle_drawing(self, min_area=None, max_area=None, orientation=False, robot=False):
+    def rectangle_drawing(self, min_area=None, max_area=None, orientation=False):
         self.box = []
         
         for idx, cnt in enumerate(self.contours):
@@ -66,14 +66,6 @@ class ObjectDetection:
                 contour = cv2.approxPolyDP(cnt, 0.001*cv2.arcLength(cnt, True), True)
 
                 if orientation:
-                    if robot:
-                        x,y,w,h = cv2.boundingRect(contour)
-                        cX = int(x+(w/2))
-                        cY = int(y+(h/2))
-                        
-                        self.center = [(cX, cY)]
-                        idx = 0
-
                     rect = cv2.minAreaRect(contour)
                     box = cv2.boxPoints(rect)
                     box = np.int0(box)
@@ -187,7 +179,7 @@ class TrajectoryPlanner:
     def linear_path(self):
         self.line_mask = np.zeros_like(self.gray_frame)
 
-        #cv2.line(self.frame, self.init_point.center, self.final_point.center, (255, 255, 0), 2)
+        cv2.line(self.frame, self.init_point.center, self.final_point.center, (255, 255, 0), 2)
         cv2.line(self.line_mask, self.init_point.center, self.final_point.center, (255, 255, 255), 1)
     
     def angular_path(self):
@@ -282,6 +274,25 @@ class TrajectoryPlanner:
             dsts.append(dst)
             
         return dsts
+    
+    def perpendicular_orientation(self):
+        self.robots_line_mask = np.zeros_like(self.gray_frame)
+        cv2.line(self.robots_line_mask, self.robot.center[0], self.robot.center[1], (255, 255, 255), 1)
+
+        points_mask = cv2.bitwise_and(self.robots_line_mask, self.line_mask)    #, self.displacement_mask)
+
+        contours, _ = cv2.findContours(points_mask, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
+        
+        for cnt in contours:
+            contour = cv2.approxPolyDP(cnt, 0.001*cv2.arcLength(cnt, True), True)
+            x,y,w,h = cv2.boundingRect(contour)
+            
+            intersection = (int(x+w/2), int(y+h/2))
+
+            ang = self._get_angle(intersection, self.robot.center[1], self.init_point.center)
+
+            return abs(ang)
+
 
     def _detect_obstacles(self):
         self.obstacle.mid_boxes.reverse()
@@ -500,7 +511,8 @@ if __name__ == '__main__':
 
     cam_pub = Publisher()
 
-    actions = Publisher()
+    actions_right = Publisher()
+    actions_left = Publisher()
     
     pink_lower = (165, 125, 125)
     pink_upper = (175, 255, 255)
@@ -533,12 +545,12 @@ if __name__ == '__main__':
             final_frame = frame
             dummy_frame = np.zeros_like(frame)
 
-            robot.hsv_detection(robot_lower, robot_upper, 1, 1)
-            robot.rectangle_drawing(100, 1000, True, True)
+            robot.hsv_detection(robot_lower, robot_upper, 1, 1, True)
+            robot.rectangle_drawing(100, 1000, True)
 
-            obstacle.hsv_detection(pink_lower, pink_upper, 3, 5, True)
-            obstacle.frame = dummy_frame
-            obstacle.rectangle_drawing(50, 1000, True)
+            #obstacle.hsv_detection(pink_lower, pink_upper, 3, 5, True)
+            #obstacle.frame = dummy_frame
+            #obstacle.rectangle_drawing(50, 1000, True)
             
             beginning.hsv_detection(green_lower, green_upper, 3, 5)
             beginning.rectangle_drawing(50, 500)
@@ -556,30 +568,60 @@ if __name__ == '__main__':
             except:
                 pass
 
-            rot_obs, mid_field, ext_field = left_robot.rotate_obstacles(obstacle.mask)
+            #rot_obs, mid_field, ext_field = left_robot.rotate_obstacles(obstacle.mask)
 
-            obstacle.potential_fields(frame, rot_obs, mid_field, ext_field)
+            #print(rot_obs)
+            #obstacle.potential_fields(frame, rot_obs, mid_field, ext_field)
 
-            left_robot.obstacle = obstacle
-            left_robot.draw_trajectory()
+            #left_robot.obstacle = obstacle
+            #left_robot.draw_trajectory()
 
             frame = left_robot.frame
 
-            robot_ang = left_robot.angular_path()
+            robot_ang = left_robot.angular_path() ####List with robots angles
 
+            ##################### Al regresar los obstacles es importante editar la máscara de la trayectoria inicial en trajectory_displacement()
             displacement = left_robot.trajectory_displacement()
             
             movement = Controller(robot_ang, line_ang, displacement)
+
+            left_movement = Controller(robot_ang[0], line_ang, displacement[0]) #review the order of robots match with their order in lists(left -> robot[0])
+            right_movement = Controller(robot_ang[1], line_ang, displacement[1])
         except:
             pass
         
         try:
-            motions, data = movement.trajectory_control(data)
+            motions_val_l, data = left_movement.trajectory_control(data)
+            motions_val_r, data = right_movement.trajectory_control(data)
 
-            if left_robot._get_distance(beginning.center, robot.center[0]) < 25:
-                motions = [0, 0, 0, 0, 0]
+            if not any(motions_val_l) and not any(motions_val_r):     #Second evaluation
+                bots_ang = left_robot.perpendicular_orientation()
+                if bots_ang >= 80 and bots_ang <= 100:        #Third evaluation
+                    dst_robot_l = left_robot._get_distance(beginning.center, robot.center[0])
+                    dst_robot_r = left_robot._get_distance(beginning.center, robot.center[1])
+                    if min(dst_robot_l, dst_robot_r) == dst_robot_l:
+                        motions_val_l = [0, 0, 0, 0, 1]
+                    else:
+                        motions_val_r = [0, 0, 0, 0, 1]
+                else:
+                    motions_val_l = [0, 0, 0, 0, 1]
+                    motions_val_r = [0, 0, 0, 0, 1]
+                        
+
+            if left_robot._get_distance(beginning.center, robot.center[0]) < 10:
+                motions_val_l = [0, 0, 0, 0, 0]
                 exit = True
-            actions.int_array_pub('/motions', motions)
+            print(motions_val_l)
+
+            if left_robot._get_distance(beginning.center, robot.center[1]) < 10:
+                motions_val_r = [0, 0, 0, 0, 0]
+                exit = True
+            print(motions_val_r)
+
+            actions_right.int_array_pub('/motions_right', motions_val_r)
+            actions_left.int_array_pub('/motions_left', motions_val_l)
+
+
         except:
             pass
 
@@ -593,7 +635,7 @@ if __name__ == '__main__':
         except:
             pass
 
-        cam_pub.image_pub(topic_name='/Camera', image=video)
+        #cam_pub.image_pub(topic_name='/Camera', image=video)
 
         if cv2.waitKey(1) & 0xFF == ord('q'):
             break
