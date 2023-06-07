@@ -121,12 +121,28 @@ class ObjectDetection:
             self.rectangle_drawing(1, 100000, True)
 
 
+class Publisher:
+
+    def __init__(self, node_name='vision_node'): #topic_name='/Camera_vision', msg=sensor_msgs.msg.Image, queue_size=1
+        rospy.init_node(node_name)
+    
+    def int_array_pub(self, topic_name=None, value=None, queue_size=1):
+        topic = rospy.Publisher(topic_name, std_msgs.msg.Int32MultiArray, queue_size=queue_size)
+
+        msg = Int32MultiArray()
+
+        msg.data = value
+
+        topic.publish(msg)
+
+
 class TrajectoryPlanner:
     
-    def __init__(self, frame=None, init_point = None, final_point = None, obstacle = None):
+    def __init__(self, frame=None, init_point = None, final_point = None, robot = None, obstacle = None):
         self.frame = frame
         self.init_point = init_point
         self.final_point = final_point
+        self.robot = robot
         self.obstacle = obstacle
 
         self.gray_frame = cv2.cvtColor(self.frame,cv2.COLOR_BGR2GRAY)
@@ -137,6 +153,21 @@ class TrajectoryPlanner:
 
         #cv2.line(self.frame, self.init_point.center, self.final_point.center, (255, 255, 0), 2)
         cv2.line(self.line_mask, self.init_point.center, self.final_point.center, (255, 255, 255), 1)
+    
+    def angular_path(self):
+        ang = []
+
+        for mask in range(0,len(self.obstacle.mask)):
+            robot_line_mask = np.zeros_like(self.gray_frame)
+
+            robot_line_mask, last_point = self._get_object_orientation(robot_line_mask, self.robot, mask)
+
+            #print(centerx, centery, self.robot.center, self.final_point.center)
+
+            ang.append(self._get_angle(self.robot.center[mask], (0, self.robot.center[mask][1]), last_point)) #First point hast to be the intersection
+            #cv2.putText(self.frame, str(ang), (self.robot.center[mask]+10, self.robot.center[mask]-20), cv2.FONT_HERSHEY_COMPLEX, 0.7, (255, 255, 255), 1)
+
+        return ang
     
     def rotate_obstacles(self, masks):
         or_obs = []
@@ -295,6 +326,59 @@ class TrajectoryPlanner:
             return angD
         except:
             pass
+
+
+class Controller:
+    
+    def __init__(self, variable=None, ref=None):
+        self.variable = variable
+        self.ref = ref
+        self.u1 = 0
+        self.ang_error = None
+    
+    def PID(self, Kp, Ki, Kd, Tm, sat_min=-20, sat_max=20, sat_min_value=-20, sat_max_value=20):
+        error0 = self.ref - self.variable
+
+        error1 = 0
+        error2 = 0
+
+        u = self.u1 + ( Kp + Kd/Tm)*error0 + (-Kp + Ki*Tm - 2*Kd/Tm)*error1 + (Kd/Tm)*error2
+        #ux = ux1 + (Kpx + Kdx/Tm)*errx0 + (-2*Kdx/Tm)*errx1 + (-Kpx + Kdx/Tm)*errx2
+
+        if u >= sat_max: u = sat_max_value
+        elif u <= sat_min: u = sat_min_value
+
+        self.u1 = u
+        error1 = error0
+        error2 = error1
+
+        #if ux > 3 or ux < -3:
+
+        if error0 < -5 or error0 > 5:
+            return u
+    
+    def orientation_control(self, error_lst):
+        self.ang_error = self.ref - self.variable
+        error_lst.append(self.ang_error)
+        lst_size = len(error_lst)
+        print(self.ang_error, self.ref, self.variable)
+    
+        if self.ang_error < -15 or self.ang_error > 15:
+            if self.variable > 0:
+                print(self.ref, self.variable, self.ang_error)
+                if self.ang_error > 0:
+                    M = [1, 0, 0, 0, 0] #turn_right, turn_left, right_walk, left_walk, forward
+                else:
+                    M = [0, 1, 0, 0, 0]
+            else:
+                if self.ang_error < 0:
+                    M = [1, 0, 0, 0, 0] #turn_right, turn_left, right_walk, left_walk, forward
+                else:
+                    M = [0, 1, 0, 0, 0]
+        else:
+            M = [0, 0, 0, 0, 1]
+
+        return M
                 
 
 
@@ -303,12 +387,11 @@ class TrajectoryPlanner:
 if __name__ == '__main__':
     
     shot = cv2.VideoCapture(2)
-    
+
+    actions = Publisher()
+
     pink_lower = (165, 125, 125)
     pink_upper = (175, 255, 255)
-
-    black_lower = (120, 75, 0)
-    black_upper = (140, 140, 50)
 
     green_lower = (50, 200, 0)
     green_upper = (85, 255, 255)
@@ -320,44 +403,63 @@ if __name__ == '__main__':
     robot_upper = (50, 255, 255)
 
     while True:
+        try:
 
-        ret, frame = shot.read()
+            ret, frame = shot.read()
 
-        obstacle = ObjectDetection(frame)
-        beginning = ObjectDetection(frame)
-        end = ObjectDetection(frame)
-        robot = ObjectDetection(frame)
+            obstacle = ObjectDetection(frame)
+            beginning = ObjectDetection(frame)
+            end = ObjectDetection(frame)
+            robot = ObjectDetection(frame)
 
-        dummy_frame = np.zeros_like(frame)
+            dummy_frame = np.zeros_like(frame)
 
-        final_frame = frame
-        dummy_frame = np.zeros_like(frame)
+            final_frame = frame
+            dummy_frame = np.zeros_like(frame)
 
-        obstacle.hsv_detection(pink_lower, pink_upper, 3, 5, True)
-        obstacle.frame = dummy_frame
-        obstacle.rectangle_drawing(50, 1000, True)
+            robot.hsv_detection(robot_lower, robot_upper, 1, 1)
+            robot.rectangle_drawing(100, 1000, True, True)
+
+            obstacle.hsv_detection(pink_lower, pink_upper, 3, 5, True)
+            obstacle.frame = dummy_frame
+            obstacle.rectangle_drawing(50, 1000, True)
+            
+            beginning.hsv_detection(green_lower, green_upper, 3, 5)
+            beginning.rectangle_drawing(50, 500)
+
+            end.hsv_detection(red_lower, red_upper, 1, 3)
+            end.rectangle_drawing(100, 500)
+
+            left_robot = TrajectoryPlanner(frame, beginning, end, robot, obstacle)
+
+            left_robot.linear_path()
+
+            try:
+                line_ang = left_robot._get_angle(end.center, (0, end.center[1]), beginning.center)
+                cv2.putText(left_robot.frame, str(line_ang), (end.center[0]-50, end.center[1]), cv2.FONT_HERSHEY_COMPLEX, 0.7, (255, 255, 255), 1)
+            except:
+                pass
+
+            rot_obs, mid_field, ext_field = left_robot.rotate_obstacles(obstacle.mask)
+
+            obstacle.potential_fields(frame, rot_obs, mid_field, ext_field)
+
+            left_robot.obstacle = obstacle
+            left_robot.draw_trajectory()
+
+            frame = left_robot.frame
+
+            robot_ang = left_robot.angular_path()
+            
+            movement = Controller(robot_ang, line_ang)
+        except:
+            pass
         
-        beginning.hsv_detection(green_lower, green_upper, 3, 5)
-        beginning.rectangle_drawing(50, 500)
-
-        end.hsv_detection(red_lower, red_upper, 1, 3)
-        end.rectangle_drawing(100, 500)
-        
-        robot.hsv_detection(robot_lower, robot_upper, 1, 1)
-        robot.rectangle_drawing(100, 1000, True)
-
-        left_robot = TrajectoryPlanner(frame, beginning, end, obstacle)
-        
-        left_robot.linear_path()
-
-        rot_obs, mid_field, ext_field = left_robot.rotate_obstacles(obstacle.mask)
-
-        obstacle.potential_fields(frame, rot_obs, mid_field, ext_field)
-
-        left_robot.obstacle = obstacle
-        left_robot.draw_trajectory()
-
-        frame = left_robot.frame
+        try:
+            motions, data = movement.trajectory_control(data)
+            actions.int_array_pub('/motions', motions)
+        except:
+            pass
         
         try:
             cv2.imshow('Video', frame)
