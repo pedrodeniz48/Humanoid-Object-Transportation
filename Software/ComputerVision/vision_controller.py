@@ -56,7 +56,7 @@ class ObjectDetection:
 
         self.contours, _ = cv2.findContours(mask, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
         
-    def rectangle_drawing(self, min_area=None, max_area=None, orientation=False, robot=False):
+    def rectangle_drawing(self, min_area=None, max_area=None, orientation=False):
         self.box = []
         
         for idx, cnt in enumerate(self.contours):
@@ -66,13 +66,6 @@ class ObjectDetection:
                 contour = cv2.approxPolyDP(cnt, 0.001*cv2.arcLength(cnt, True), True)
 
                 if orientation:
-                    """if robot:
-                        x,y,w,h = cv2.boundingRect(contour)
-                        cX = int(x+(w/2))
-                        cY = int(y+(h/2))
-                        
-                        self.center = [(cX, cY)]
-                        idx = 0"""
 
                     rect = cv2.minAreaRect(contour)
                     box = cv2.boxPoints(rect)
@@ -316,8 +309,8 @@ if __name__ == '__main__':
     red_lower = (0, 150, 150)
     red_upper = (20, 255, 255)
 
-    blue_lower = (120, 140, 75)
-    blue_upper = (140, 255, 175)
+    robot_lower = (15, 165, 175)
+    robot_upper = (50, 255, 255)
 
     while True:
 
@@ -326,6 +319,7 @@ if __name__ == '__main__':
         obstacle = ObjectDetection(frame)
         beginning = ObjectDetection(frame)
         end = ObjectDetection(frame)
+        robot = ObjectDetection(frame)
 
         dummy_frame = np.zeros_like(frame)
 
@@ -341,6 +335,9 @@ if __name__ == '__main__':
 
         end.hsv_detection(red_lower, red_upper, 1, 3)
         end.rectangle_drawing(100, 500)
+        
+        robot.hsv_detection(robot_lower, robot_upper, 1, 1)
+        robot.rectangle_drawing(100, 1000, True, True)
 
         left_robot = TrajectoryPlanner(frame, beginning, end, obstacle)
         
