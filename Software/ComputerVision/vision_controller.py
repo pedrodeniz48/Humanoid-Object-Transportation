@@ -222,6 +222,31 @@ class TrajectoryPlanner:
             if i%2 == 0:
                 cv2.line(self.displacement_mask, points[i], points[i+1], (255, 255, 255), 2)
 
+    def trajectory_displacement(self):
+        dsts = []
+
+        horizontal_lines = self._get_perpendicular_line() #masks with drawn lines
+
+        for horz_line in range(0,len(horizontal_lines)):
+
+            points_mask = cv2.bitwise_and(horz_line, self.line_mask)    #, self.displacement_mask)
+
+            contours, _ = cv2.findContours(points_mask, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
+            
+            for cnt in contours:
+                contour = cv2.approxPolyDP(cnt, 0.001*cv2.arcLength(cnt, True), True)
+                x,y,w,h = cv2.boundingRect(contour)
+                
+                point = (int(x+w/2), int(y+h/2))
+                dst = self._get_distance(point, self.robot.center[horz_line])
+
+                if point[1] > self.robot.center[horz_line][1]:
+                    dst = dst*-1
+            
+            dsts.append(dst)
+            
+        return dsts
+
     def _detect_obstacles(self):
         self.obstacle.mid_boxes.reverse()
 
@@ -292,6 +317,29 @@ class TrajectoryPlanner:
                 last_point = (x, y)
         
         return mask, last_point
+    
+    def _get_perpendicular_line(self):
+        masks = []
+
+        for robot in range(0,len(self.robot.box)):
+            mask = np.zeros_like(self.gray_frame)
+            
+            box = self.robot.box[robot]
+            low_mid = self._get_mid_point(box[0], box[1])
+            high_mid = self._get_mid_point(box[2], box[3])
+
+            slope =  self._get_slope(low_mid, high_mid)
+
+            height, width, _ = self.frame.shape
+
+            for x in range(0,width):
+                y=int(slope*(x-low_mid[0])+low_mid[1])
+                if(y>=0 and y<height):
+                    cv2.circle(mask, (x,y), 1, (255,255,255))
+            
+            masks.append(mask)
+        
+        return masks
 
     def _get_mid_point(self, pointA, pointB):
         mid_point = []
@@ -330,11 +378,13 @@ class TrajectoryPlanner:
 
 class Controller:
     
-    def __init__(self, variable=None, ref=None):
+    def __init__(self, variable=None, ref=None, dst = None):
         self.variable = variable
         self.ref = ref
         self.u1 = 0
         self.ang_error = None
+
+        self.dst = dst
     
     def PID(self, Kp, Ki, Kd, Tm, sat_min=-20, sat_max=20, sat_min_value=-20, sat_max_value=20):
         error0 = self.ref - self.variable
@@ -357,7 +407,15 @@ class Controller:
         if error0 < -5 or error0 > 5:
             return u
     
-    def orientation_control(self, error_lst):
+    def trajectory_control(self, error_lst, range=(None, None)):
+
+        M = self._orientation_control(error_lst)
+        
+        error_lst = []
+        
+        return M, error_lst
+    
+    def _orientation_control(self, error_lst):
         self.ang_error = self.ref - self.variable
         error_lst.append(self.ang_error)
         lst_size = len(error_lst)
@@ -376,8 +434,24 @@ class Controller:
                 else:
                     M = [0, 1, 0, 0, 0]
         else:
-            M = [0, 0, 0, 0, 1]
+            M = self._lateral_displacement_control()
 
+        return M
+    
+    def _lateral_displacement_control(self):
+        #M = [0, 0, 0, 0, 0]
+
+        #print(self.variable)
+    
+        if self.dst < -20 or self.dst > 20:
+            if self.dst > 0:
+                M = [0, 0, 1, 0, 0] #turn_right, turn_left, right_walk, left_walk, forward
+            else:
+                M = [0, 0, 0, 1, 0]
+        else:
+            M = [0, 0 , 0, 0, 1]
+            ####M = [0, 0, 0, 0, 0] #Staying still until partner get in position
+        
         return M
                 
 
@@ -389,7 +463,7 @@ if __name__ == '__main__':
     shot = cv2.VideoCapture(2)
 
     actions = Publisher()
-
+    
     pink_lower = (165, 125, 125)
     pink_upper = (175, 255, 255)
 
@@ -450,14 +524,17 @@ if __name__ == '__main__':
             frame = left_robot.frame
 
             robot_ang = left_robot.angular_path()
+
+            displacement = left_robot.trajectory_displacement()
             
-            movement = Controller(robot_ang, line_ang)
+            movement = Controller(robot_ang, line_ang, displacement)
         except:
             pass
         
         try:
             motions, data = movement.trajectory_control(data)
             actions.int_array_pub('/motions', motions)
+
         except:
             pass
         
