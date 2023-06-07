@@ -106,6 +106,34 @@ int main(int argc, char **argv) {
   write_msg.position.push_back(0.349066);
   write_joint_pub.publish(write_msg);
 
+  ros::Duration(3).sleep();
+
+  //ros ok
+  while (ros::ok()) {
+    ros::spinOnce();
+    ros::Rate loop_rate(SPIN_RATE);
+
+    switch (action) {
+        case 'A':
+            std::cout << "turn right" << std::endl;
+            turnRight(posiciones2, rows);
+        case 'B':
+            std::cout << "turn left" << std::endl;
+            turnLeft(posiciones2, rows);
+        case 'C':
+            std::cout << "right walk" << std::endl;
+            walkRight(posiciones2, rows);
+        case 'D':
+            std::cout << "left walk" << std::endl;
+            walkLeft(posiciones2, rows);
+        case 'E':
+            std::cout << "forward" << std::endl;
+            walkForward(posiciones2, rows);
+        default:
+            std::cout << "stop" << std::endl;
+            //stop(posiciones2, rows);
+    }
+  }
   return 0;
 }
 
@@ -168,4 +196,52 @@ void torqueOnAll() {
   std_msgs::String check_msg;
   check_msg.data = "check";
   dxl_torque_pub.publish(check_msg);
+}
+
+bool isActionRunning() {
+  op3_action_module_msgs::IsRunning is_running_srv;
+
+  if (is_running_client.call(is_running_srv) == false) {
+    ROS_ERROR("Failed to start action module");
+    return true;
+  } else {
+    if (is_running_srv.response.is_running == true) {
+      return true;
+    }
+  }
+  return false;
+}
+
+void callbackMotions(const std_msgs::Int32MultiArray::ConstPtr& msg) {
+    std::vector <char> cases= {'A', 'B', 'C', 'D', 'E'};
+    std::vector <int> data = msg -> data;
+    for (int i=0; i<data.size(); i++) {
+        if (data[i]) {
+          action = cases[i];
+    }
+  }
+}
+
+void callbackImu(const sensor_msgs::Imu::ConstPtr& msg) {
+  Eigen::Quaterniond orientation(msg->orientation.w, msg->orientation.x, msg->orientation.y, msg->orientation.z);
+  Eigen::MatrixXd rpy_orientation = robotis_framework::convertQuaternionToRPY(orientation);
+  rpy_orientation *= (180 / 3.141516);
+
+  double pitch = rpy_orientation.coeff(1, 0);
+
+  double alpha = 0.4;
+  if (present_pitch_ == 0) 
+    present_pitch_ = pitch;
+  else
+    present_pitch_ = present_pitch_ * (1 - alpha) + pitch * alpha;
+
+  if (present_pitch_ > FALL_FORWARD_LIMIT) {
+    goAction(122);
+    setModule("none");
+  } else if (present_pitch_ < FALL_BACK_LIMIT) {
+    goAction(123);
+    setModule("none");
+  } else {
+    state = 0;
+  }
 }
