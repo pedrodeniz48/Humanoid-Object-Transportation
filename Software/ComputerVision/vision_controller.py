@@ -1,15 +1,8 @@
 import cv2
 import numpy as np
-import rospy
-import sensor_msgs
-from cv_bridge import CvBridge
-import geometry_msgs
-from geometry_msgs.msg import Point
-import std_msgs
-from std_msgs.msg import Bool
-from std_msgs.msg import Float32
-from std_msgs.msg import Int32MultiArray
 import math
+from Publisher import Publisher
+from Controller import Controller
 
 class ObjectDetection:
 
@@ -113,57 +106,6 @@ class ObjectDetection:
             self.binary_detection(ext_field[obs], 250, 1, 1)
             self.frame = frame
             self.rectangle_drawing(1, 100000, True)
-
-
-class Publisher:
-
-    def __init__(self, node_name='vision_node'): #topic_name='/Camera_vision', msg=sensor_msgs.msg.Image, queue_size=1
-        rospy.init_node(node_name)
-    
-    def image_pub(self, topic_name=None, image=None, image_format="rgb8", queue_size=1):
-        topic = rospy.Publisher(topic_name, sensor_msgs.msg.Image, queue_size=queue_size)
-
-        bridge = CvBridge()
-        final_img = bridge.cv2_to_imgmsg(image, image_format)
-        topic.publish(final_img)
-
-    def point_pub(self, topic_name=None, x_value=None, y_value=None, z_value=None, queue_size=1):
-        topic = rospy.Publisher(topic_name, geometry_msgs.msg.Point, queue_size=queue_size)
-
-        position_point = Point()
-
-        position_point.x = x_value
-        position_point.y = y_value
-        position_point.z = z_value
-
-        topic.publish(position_point)
-
-    def float32_pub(self, topic_name=None, value=None, queue_size=1):
-        topic = rospy.Publisher(topic_name, std_msgs.msg.Float32, queue_size=queue_size)
-
-        msg = Float32()
-
-        msg.data = value
-
-        topic.publish(msg)
-    
-    def bool_pub(self, topic_name=None, value=None, queue_size=1):
-        topic = rospy.Publisher(topic_name, std_msgs.msg.Bool, queue_size=queue_size)
-
-        msg = Bool()
-
-        msg.data = value
-
-        topic.publish(msg)
-    
-    def int_array_pub(self, topic_name=None, value=None, queue_size=1):
-        topic = rospy.Publisher(topic_name, std_msgs.msg.Int32MultiArray, queue_size=queue_size)
-
-        msg = Int32MultiArray()
-
-        msg.data = value
-
-        topic.publish(msg)
 
 
 class TrajectoryPlanner:
@@ -381,76 +323,6 @@ class TrajectoryPlanner:
             return angD
         except:
             pass
-
-
-class Controller:
-    
-    def __init__(self, variable=None, ref=None, dst = None):
-        self.variable = variable
-        self.ref = ref
-        self.u1 = 0
-        self.ang_error = None
-
-        self.dst = dst
-    
-    def PID(self, Kp, Ki, Kd, Tm, sat_min=-20, sat_max=20, sat_min_value=-20, sat_max_value=20):
-        error0 = self.ref - self.variable
-
-        error1 = 0
-        error2 = 0
-
-        u = self.u1 + ( Kp + Kd/Tm)*error0 + (-Kp + Ki*Tm - 2*Kd/Tm)*error1 + (Kd/Tm)*error2
-        #ux = ux1 + (Kpx + Kdx/Tm)*errx0 + (-2*Kdx/Tm)*errx1 + (-Kpx + Kdx/Tm)*errx2
-
-        if u >= sat_max: u = sat_max_value
-        elif u <= sat_min: u = sat_min_value
-
-        self.u1 = u
-        error1 = error0
-        error2 = error1
-
-        #if ux > 3 or ux < -3:
-
-        if error0 < -5 or error0 > 5:
-            return u
-    
-    def trajectory_control(self):
-
-        M = self._orientation_control()
-        
-        return M
-    
-    def _orientation_control(self):
-        self.ang_error = self.ref - self.variable
-    
-        if self.ang_error < -15 or self.ang_error > 15:
-            if self.variable > 0:
-                print(self.ref, self.variable, self.ang_error)
-                if self.ang_error > 0:
-                    M = [1, 0, 0, 0, 0] #turn_right, turn_left, right_walk, left_walk, forward
-                else:
-                    M = [0, 1, 0, 0, 0]
-            else:
-                if self.ang_error < 0:
-                    M = [1, 0, 0, 0, 0] #turn_right, turn_left, right_walk, left_walk, forward
-                else:
-                    M = [0, 1, 0, 0, 0]
-        else:
-            M = self._lateral_displacement_control()
-
-        return M
-    
-    def _lateral_displacement_control(self):
-    
-        if self.dst < -20 or self.dst > 20:
-            if self.dst > 0:
-                M = [0, 0, 1, 0, 0] #turn_right, turn_left, right_walk, left_walk, forward
-            else:
-                M = [0, 0, 0, 1, 0]
-        else:
-            M = [0, 0 , 0, 0, 1]
-        
-        return M
                 
 
 
@@ -549,7 +421,7 @@ if __name__ == '__main__':
         except:
             pass
 
-        #cam_pub.image_pub(topic_name='/Camera', image=video)
+        #cam_pub.image_pub(topic_name='/Camera', image=frame)
 
         if cv2.waitKey(1) & 0xFF == ord('q'):
             break
