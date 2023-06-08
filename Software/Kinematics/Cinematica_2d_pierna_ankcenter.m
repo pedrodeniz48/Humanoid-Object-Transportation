@@ -9,11 +9,36 @@ l3 = 12.5325;       %Rodilla-cadera
 offset = 7;       %Cadera-torso
 
 %Objetivo
-% limite_sentado = 14.75;
-pose_parado = (l2+l3+offset)-4;       %En cm
-Ox = linspace(0,0.5,10);
-sz = size(Ox);
-Oy = pose_parado*ones(1,sz(1,2));
+%limite_sentado = 14.75;
+Oy = linspace(14.75,(l2+l3)+offset-4,40)
+%Oy = (14.75)*ones(1,40);
+%for i = 1:3
+%     Oy_aux = linspace(27.5,25,20);
+%     Oy = [Oy Oy_aux];
+%     Oy_aux = linspace(25,27.5,20);
+%     Oy = [Oy Oy_aux];
+% end
+% Oy = [Oy linspace(27.5,(l2+l3)+offset-0.5,40)];
+sz = size(Oy);
+Ox = 0*ones(1,sz(1,2));
+%Ox = linspace(0,2,40);
+%Objetivo
+% % limite_sentado = 14.75;
+% pose_parado = (l2+l3+offset)-4;       %En cm
+% Ox = linspace(0,0.5,10);
+% sz = size(Ox);
+% Oy = pose_parado*ones(1,sz(1,2));
+
+% %Circulo
+% r = 30;
+% h = 0;
+% k = 0;
+% 
+% th = pi/2:pi/100:pi*(19/32);
+% Ox = r * cos(th) + h;
+% Oy = r * sin(th) + k;
+% sz = size(Ox);
+
 
 %Para graficación
 X = Ox;
@@ -40,7 +65,7 @@ for i = 1:sz(1,2)
     T1r=calc_A(a1r,alpha1r,d1r,th1r);
     T2r=calc_A(a2r,alpha2r,d2r,th2r);
     
-    %Cinemática directa (multiplicación dematrices)
+    %Cinemática directa (multiplicación de matrices)
     Tnr=T1r*T2r;
     
     %Punto del brazo final
@@ -50,9 +75,13 @@ for i = 1:sz(1,2)
     %Graficar
     hold on
     plot(Ox(1,i),Oy(1,i),'sg',Xrobot,Yrobot,'or',T1r(1,4),T1r(2,4),'ob',T1r(1,4),T1r(2,4),'or');
-    xlim([-25,26]);
-    ylim([-1,50]);
+    xlim([-15,15]);
+    ylim([-1,29]);
     grid on
+%     line([0,T1r(1,4)],[0,T1r(2,4)],'color','red');
+%     line([T1r(1,4),Tnr(1,4)],[T1r(2,4),Tnr(2,4)],'color','blue');
+%     line([X(1,i),Ox(1,i)],[Y(1,i),Oy(1,i)],'color','magenta');
+%     line([l1,0],[0,0],'color','magenta');
     line([0,T1r(1,4)],[0,T1r(2,4)],'color','red');
     line([T1r(1,4),Tnr(1,4)],[T1r(2,4),Tnr(2,4)],'color','blue');
     line([X(1,i),Ox(1,i)],[Y(1,i),Oy(1,i)],'color','magenta');
@@ -72,7 +101,7 @@ ang_deg(:,1) = ang_deg(:,1)-90;
 %A = abs(round(ang_deg))
 rads = deg2rad(ang_deg);
 
-rads2 = [rads (-1)*rads];
+rads2 = [rads (-1)*rads]
 
 %dlmwrite('Pararse.txt',rads2,'delimiter',' ');
 
